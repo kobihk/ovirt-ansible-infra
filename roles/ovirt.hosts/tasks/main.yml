@@ -41,24 +41,13 @@
     - "{{ hosts | default([]) }}"
   loop_control:
     label: "{{ item.name }}"
-  async: "{{ ovirt_hosts_max_timeout }}"
-  poll: 0
   register: add_hosts
   tags:
     - hosts
 
-- name: Wait for hosts to be added
-  async_status: "jid={{ item.ansible_job_id }}"
-  register: job_result
-  with_items:
-    - "{{ add_hosts.results | removesensitive }}"
-  loop_control:
-    label: "{{ item.item.name }}"
-  tags:
-    - hosts
-  until: job_result.finished
-  retries: "{{ ovirt_hosts_max_timeout // 20 }}"
-  delay: 20
+- name: Log result of adding hosts
+  debug:
+    var: add_hosts
 
 - name: Set Power Management
   ovirt_host_pm:
@@ -78,3 +67,28 @@
     label: "{{ item.name }}"
   tags:
     - hosts
+
+# WA for Add LVM filters before the SDs are added
+- name: Enable vdsm-tool config-lvm-filter
+  shell: "echo yes | vdsm-tool config-lvm-filter"
+  register: enable_filter
+
+- name: Print the enable_filter output
+  debug:
+    msg: "{{ enable_filter.stdout }}"
+
+- name: Check if the fitler set as expected
+  shell: "lvm dumpconfig devices/filter"
+  register: filter_setting
+
+- name: Print the filter_setting output
+  debug:
+    msg: "{{ filter_setting.stdout }}"
+
+- name: Fail with error when filter not set as expected
+  fail:
+    msg: >-
+      "The lvm-filter not set as expected with the following output:"
+      "{{ filter_setting.stdout }}"
+  when: filter_setting.stdout != 'filter="r|.*|"'
+# End of WA to Add LVM filters
